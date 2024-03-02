@@ -579,6 +579,8 @@ void Execute(Params params)
     // Vulkan Destroy
     // ----------------------
 
+    vkDeviceWaitIdle(device);
+
     vkDestroyCommandPool(device, commandPool, nullptr);
     vkDestroyPipeline(device, graphicsPipeline, nullptr);
     vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
