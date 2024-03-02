@@ -4,7 +4,9 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
-typedef struct
+#include <vector>
+
+struct SwapChainParams
 {
     GLFWwindow*       window;
     VkDevice*         device;
@@ -12,21 +14,22 @@ typedef struct
     VkPhysicalDevice  physicalDevice;
     uint32_t          queueIndexGraphics;
     uint32_t          queueIndexPresent;
+};
 
-} SwapChainParams;
-
-typedef struct
+struct SwapChain
 {
-    VkSwapchainKHR     primitive;
-    uint32_t           imageCount;
-    VkImage*           images;
-    VkImageView*       imageViews;
-    VkSurfaceFormatKHR format;
-    VkExtent2D         extent;
+    VkSwapchainKHR           primitive;
+    uint32_t                 imageCount;
+    std::vector<VkImage>     images;
+    std::vector<VkImageView> imageViews;
+    VkSurfaceFormatKHR       format;
+    VkExtent2D               extent;
+    VkSemaphore              imageAvailableSemaphore;
+    VkSemaphore              renderFinishedSemaphore;
+    VkFence                  inFlightFence;
+};
 
-} SwapChain;
-
-VkResult CreateSwapChain(SwapChainParams params, SwapChain* swapchain);
+void TryCreateSwapChain(SwapChainParams params, SwapChain* swapchain);
 
 void ReleaseSwapChain(VkDevice device, SwapChain* swapchain);
 

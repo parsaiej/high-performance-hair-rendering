@@ -16,34 +16,33 @@
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
 
-#include <vulkan/utility/vk_format_utils.h>
+#include <iostream>
 
-#include <stdio.h>
+// Command-line parser utility. 
+#include <cxxopts.hpp>
 
+// Small vk wrappers
 #include "shader.h"
 #include "swapchain.h"
+
+#define APPLICATION_NAME "High-Performance Hair Rendering"
 
 // Util
 // ----------------------
 
-#define MAX_INSTANCE_EXTENSION 16
-#define MAX_PHYSICAL_DEVICES    1
-#define MAX_QUEUE_FAMILIES     16
-
-typedef struct {
-
+struct QueueFamilyIndices
+{
     uint32_t graphics;
     uint32_t present;
-
-} QueueFamilyIndices;
+};
 
 QueueFamilyIndices GetQueueFamilyIndices(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface)
 {
     uint32_t queueFamilyCount = 0;
-    vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, NULL);
+    vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, nullptr);
 
-    VkQueueFamilyProperties queueFamilies[MAX_QUEUE_FAMILIES];
-    vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, queueFamilies);
+    std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+    vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, queueFamilies.data());
 
     QueueFamilyIndices indices;
     { 
@@ -66,10 +65,16 @@ QueueFamilyIndices GetQueueFamilyIndices(VkPhysicalDevice physicalDevice, VkSurf
     return indices;
 }
 
-// Entry
+// Implementation
 // ----------------------
 
-int main(int argc, char *argv[]) 
+struct Params
+{
+    int width;
+    int height;
+};
+
+void Execute(Params params)
 {
     // GLFW Initialization
     // ----------------------
@@ -81,7 +86,7 @@ int main(int argc, char *argv[])
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
         glfwWindowHint(GLFW_RESIZABLE,  GLFW_FALSE);
         
-        window = glfwCreateWindow(800, 600, "High-Performance Hair Renderer", NULL, NULL);
+        window = glfwCreateWindow(params.width, params.height, "High-Performance Hair Renderer", nullptr, nullptr);
     }
 
     // Create Vulkan Instance
@@ -92,7 +97,7 @@ int main(int argc, char *argv[])
         VkApplicationInfo appInfo =
         {
             .sType              = VK_STRUCTURE_TYPE_APPLICATION_INFO,
-            .pApplicationName   = "High-Performance Hair Rendering",
+            .pApplicationName   = APPLICATION_NAME,
             .applicationVersion = VK_MAKE_VERSION(1, 0, 0),
             .pEngineName        = "No Engine",
             .engineVersion      = VK_MAKE_VERSION(1, 0, 0),
@@ -104,36 +109,46 @@ int main(int argc, char *argv[])
         const char** glfwExtensions;
         glfwExtensions = glfwGetRequiredInstanceExtensions(&extensionCount);
 
-        const char* allExtensions[MAX_INSTANCE_EXTENSION];
+        std::vector<const char*> allExtensions;
 
         // Copy GLFW extensions. 
         for (uint32_t i = 0; i < extensionCount; ++i)
-            allExtensions[i] = glfwExtensions[i];
+            allExtensions.push_back(glfwExtensions[i]);
 
     #if __APPLE__
         // MoltenVK compatibility. 
-        allExtensions[extensionCount++] = VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME;
-        allExtensions[extensionCount++] = VK_MVK_MACOS_SURFACE_EXTENSION_NAME;
+        allExtensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+        allExtensions.push_back(VK_MVK_MACOS_SURFACE_EXTENSION_NAME);
     #endif
+
+        const std::vector<const char*> validationLayers = 
+        {
+            "VK_LAYER_KHRONOS_validation"
+        };
 
         VkInstanceCreateInfo createInfo =
         {
             .sType                   = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
             .pApplicationInfo        = &appInfo,
-            .enabledExtensionCount   = extensionCount,
-            .ppEnabledExtensionNames = allExtensions,
+            .enabledExtensionCount   = (uint32_t)allExtensions.size(),
+            .ppEnabledExtensionNames = allExtensions.data(),
+
+        #ifdef DEBUG
+            .enabledLayerCount       = 1,
+            .ppEnabledLayerNames     = validationLayers.data(),
+        #else
             .enabledLayerCount       = 0,
+            .ppEnabledLayerNames     = nullptr,
+        #endif
+
         #if __APPLE__
             // For MoltenVK. 
             .flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR
         #endif
         };
 
-        if (vkCreateInstance(&createInfo, NULL, &instance) != VK_SUCCESS) 
-        {
-            printf("failed to create instance!");
-            return -1; 
-        }
+        if (vkCreateInstance(&createInfo, nullptr, &instance) != VK_SUCCESS) 
+            throw std::runtime_error("failed to create instance!");
     }
 
     // Create an OS-compatible Surface. 
@@ -148,7 +163,7 @@ int main(int argc, char *argv[])
         VkMacOSSurfaceCreateInfoMVK createInfo =
         {
             .sType = VK_STRUCTURE_TYPE_MACOS_SURFACE_CREATE_INFO_MVK,
-            .pNext = NULL,
+            .pNext = nullptr,
             .flags = 0,
             .pView = GetMetalLayer(window)
         };
@@ -159,15 +174,11 @@ int main(int argc, char *argv[])
         if (!vkCreateMacOSSurfaceMVK) 
         {
             // Note: This call will fail unless we add VK_MVK_MACOS_SURFACE_EXTENSION_NAME extension. 
-            printf("Unabled to get pointer to function: vkCreateMacOSSurfaceMVK");
-            return -1;
+            throw std::runtime_error("Unabled to get pointer to function: vkCreateMacOSSurfaceMVK");
         }
 
-        if (vkCreateMacOSSurfaceMVK(instance, &createInfo, NULL, &surface)!= VK_SUCCESS) 
-        {
-            printf("failed to create surface!");
-            return -1;
-        }
+        if (vkCreateMacOSSurfaceMVK(instance, &createInfo, nullptr, &surface)!= VK_SUCCESS) 
+            throw std::runtime_error("failed to create surface.");
     }
 #endif
 
@@ -177,16 +188,13 @@ int main(int argc, char *argv[])
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
     {
         uint32_t deviceCount = 0;
-        vkEnumeratePhysicalDevices(instance, &deviceCount, NULL);
+        vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
 
         if (deviceCount == 0)
-        {
-            printf("no graphics device found.");
-            return -1; 
-        }
+            throw std::runtime_error("no physical graphics devices found.");
 
-        VkPhysicalDevice physicalDevices[MAX_PHYSICAL_DEVICES];
-        vkEnumeratePhysicalDevices(instance, &deviceCount, physicalDevices);
+        std::vector<VkPhysicalDevice> physicalDevices(deviceCount);
+        vkEnumeratePhysicalDevices(instance, &deviceCount, physicalDevices.data());
 
         // Lazily choose the first one. 
         physicalDevice = physicalDevices[0];
@@ -203,16 +211,10 @@ int main(int argc, char *argv[])
     VkDevice device = VK_NULL_HANDLE;
     {
         if (queueIndices.graphics == UINT_MAX || queueIndices.present == UINT_MAX)
-        {
-            printf("no graphics or present queue for the device.");
-            return -1; 
-        }
+            throw std::runtime_error("no graphics or present queue for the device.");
 
         if (queueIndices.graphics != queueIndices.present)
-        {
-            printf("no support for different graphics and present queue.");
-            return -1; 
-        }
+            throw std::runtime_error("no support for different graphics and present queue.");
             
         float queuePriority = 1.0f;
 
@@ -255,12 +257,13 @@ int main(int argc, char *argv[])
             .enabledLayerCount       = 0
         };
 
-        if (vkCreateDevice(physicalDevice, &createInfo, NULL, &device) != VK_SUCCESS) 
-        {
-            printf("failed to create logical device!");
-            return -1;
-        }
+        if (vkCreateDevice(physicalDevice, &createInfo, nullptr, &device) != VK_SUCCESS) 
+            throw std::runtime_error("failed to create logical device.");
     }
+
+    // Function pointers to the dynamic rendering extension API. 
+	PFN_vkCmdBeginRenderingKHR vkCmdBeginRenderingKHR  = reinterpret_cast<PFN_vkCmdBeginRenderingKHR>(vkGetDeviceProcAddr(device, "vkCmdBeginRenderingKHR"));
+	PFN_vkCmdEndRenderingKHR   vkCmdEndRenderingKHR    = reinterpret_cast<PFN_vkCmdEndRenderingKHR>  (vkGetDeviceProcAddr(device, "vkCmdEndRenderingKHR"  ));
 
     // Create Swap Chain
     // ----------------------
@@ -277,12 +280,7 @@ int main(int argc, char *argv[])
     };
 
     SwapChain swapChain;
-
-    if (CreateSwapChain(swapChainParams, &swapChain) != VK_SUCCESS)
-    {
-        printf("failed to create a swap chain.");
-        return -1;
-    }
+    TryCreateSwapChain(swapChainParams, &swapChain);
 
     // Create Graphics Pipeline
     // ----------------------
@@ -292,7 +290,7 @@ int main(int argc, char *argv[])
     
     if (!CreateShader(device, VK_SHADER_STAGE_VERTEX_BIT,   &shaderVert, "build/vert.spv") ||
         !CreateShader(device, VK_SHADER_STAGE_FRAGMENT_BIT, &shaderFrag, "build/frag.spv"))
-        return -1;
+        throw std::runtime_error("failed to create shaders.");
 
     // Vertex Layout
 
@@ -300,9 +298,9 @@ int main(int argc, char *argv[])
     {
         .sType                           = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
         .vertexBindingDescriptionCount   = 0,
-        .pVertexBindingDescriptions      = NULL,
+        .pVertexBindingDescriptions      = nullptr,
         .vertexAttributeDescriptionCount = 0,
-        .pVertexAttributeDescriptions    = NULL
+        .pVertexAttributeDescriptions    = nullptr
     };
 
     // Input Assembly
@@ -367,7 +365,7 @@ int main(int argc, char *argv[])
         .sampleShadingEnable   = VK_FALSE,
         .rasterizationSamples  = VK_SAMPLE_COUNT_1_BIT,
         .minSampleShading      = 1.0f,
-        .pSampleMask           = NULL, 
+        .pSampleMask           = nullptr, 
         .alphaToCoverageEnable = VK_FALSE,
         .alphaToOneEnable      = VK_FALSE,   
     };
@@ -396,11 +394,8 @@ int main(int argc, char *argv[])
     };
 
     VkPipelineLayout pipelineLayout;
-    if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, NULL, &pipelineLayout) != VK_SUCCESS)
-    {
-        printf("failed to create pipeline layout.");
-        return -1; 
-    }
+    if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS)
+        throw std::runtime_error("failed to create pipeline layout.");
 
     VkPipelineShaderStageCreateInfo shaderStages[2] = 
     {
@@ -426,25 +421,60 @@ int main(int argc, char *argv[])
         .pViewportState      = &viewportState,
         .pRasterizationState = &rasterizer,
         .pMultisampleState   = &multisampling,
-        .pDepthStencilState  = NULL,
+        .pDepthStencilState  = nullptr,
         .pColorBlendState    = &colorBlending,
-        .pDynamicState       = NULL,
+        .pDynamicState       = nullptr,
         .layout              = pipelineLayout,
         .basePipelineHandle  = VK_NULL_HANDLE,
         .basePipelineIndex   = -1,
 
         // None due to dynamic rendering extension. 
-        .renderPass          = NULL,
+        .renderPass          = nullptr,
         .subpass             = 0
     };
 
     VkPipeline graphicsPipeline;
 
-    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &graphicsPipeline) != VK_SUCCESS) 
+    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline) != VK_SUCCESS) 
+        throw std::runtime_error("failed to create graphics pipeline.");
+
+    // Command Pool
+    // ----------------------
+
+    VkCommandPoolCreateInfo commandPoolInfo
     {
-        printf("failed to create graphics pipeline.");
-        return -1;
-    }
+        .sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+        .flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+        .queueFamilyIndex = queueIndices.graphics
+    };
+
+    VkCommandPool commandPool;
+    if (vkCreateCommandPool(device, &commandPoolInfo, nullptr, &commandPool) != VK_SUCCESS)
+        throw std::runtime_error("failed to create command pool.");
+
+    // Commands
+    // ----------------------
+
+    VkCommandBufferAllocateInfo commandAllocateInfo
+    {
+        .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .commandPool        = commandPool,
+        .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = 1
+    };
+
+    VkCommandBuffer commandBuffer;
+    if (vkAllocateCommandBuffers(device, &commandAllocateInfo, &commandBuffer) != VK_SUCCESS)
+        throw std::runtime_error("failed to allocate command buffer.");
+
+    // Command Recording
+
+    VkCommandBufferBeginInfo commandBufferBeginInfo
+    {
+        .sType            = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags            = 0,
+        .pInheritanceInfo = nullptr
+    };
     
     // Fetch Queues
     // ----------------------
@@ -454,26 +484,113 @@ int main(int argc, char *argv[])
 
     VkQueue presentQueue;
     vkGetDeviceQueue(device, queueIndices.present, 0, &presentQueue);
+
+    // Render-loop
+    // ----------------------
     
     while(!glfwWindowShouldClose(window)) 
     {
         glfwPollEvents();
+
+        vkWaitForFences(device, 1, &swapChain.inFlightFence, VK_TRUE, UINT64_MAX);
+
+        vkResetFences(device, 1, &swapChain.inFlightFence);
+
+        uint32_t imageIndex;
+        vkAcquireNextImageKHR(device, swapChain.primitive, UINT64_MAX, swapChain.imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+
+        vkResetCommandBuffer(commandBuffer, 0);
+
+        vkBeginCommandBuffer(commandBuffer, &commandBufferBeginInfo);
+        {
+            VkClearValue clearValue { .color = { 1, 0, 0, 0} }; 
+
+            VkRenderingAttachmentInfoKHR colorAttachment
+            {
+                .sType       = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR,
+                .imageView   = swapChain.imageViews[imageIndex],
+                .imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR,
+                .loadOp      = VK_ATTACHMENT_LOAD_OP_CLEAR,
+                .storeOp     = VK_ATTACHMENT_STORE_OP_STORE,
+                .clearValue  = clearValue
+            };
+
+            VkRenderingInfoKHR renderInfo
+            {
+                .sType                = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR,
+                .renderArea           = scissor,
+                .layerCount           = 1,
+                .colorAttachmentCount = 1,
+                .pColorAttachments    = &colorAttachment,
+                .pDepthAttachment     = nullptr,
+                .pStencilAttachment   = nullptr
+            };
+
+            vkCmdBeginRenderingKHR(commandBuffer, &renderInfo);
+
+            // begin
+
+            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+            vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+            vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+            vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+
+            // end
+
+            vkCmdEndRenderingKHR(commandBuffer);
+        }
+        vkEndCommandBuffer(commandBuffer);
+
+        VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+
+        // Submit
+
+        VkSubmitInfo submitInfo 
+        { 
+            .sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .waitSemaphoreCount   = 1,
+            .pWaitSemaphores      = &swapChain.imageAvailableSemaphore,
+            .signalSemaphoreCount = 1,
+            .pSignalSemaphores    = &swapChain.renderFinishedSemaphore,
+            .pWaitDstStageMask    = waitStages,
+            .commandBufferCount   = 1,
+            .pCommandBuffers      = &commandBuffer
+        };
+
+        if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, swapChain.inFlightFence) != VK_SUCCESS)
+            throw std::runtime_error("failed to submit command buffer to graphics queue.");
+
+        // Present 
+
+        VkPresentInfoKHR presentInfo
+        {
+            .sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+            .waitSemaphoreCount = 1,
+            .pWaitSemaphores    = &swapChain.renderFinishedSemaphore,
+            .swapchainCount     = 1,
+            .pSwapchains        = &swapChain.primitive,
+            .pImageIndices      = &imageIndex,
+            .pResults           = nullptr
+        };
+
+        vkQueuePresentKHR(presentQueue, &presentInfo);
     }
 
     // Vulkan Destroy
     // ----------------------
 
-    vkDestroyPipeline(device, graphicsPipeline, NULL);
-    vkDestroyPipelineLayout(device, pipelineLayout, NULL);
+    vkDestroyCommandPool(device, commandPool, nullptr);
+    vkDestroyPipeline(device, graphicsPipeline, nullptr);
+    vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
 
     ReleaseShader(device, &shaderVert);
     ReleaseShader(device, &shaderFrag);
 
     ReleaseSwapChain(device, &swapChain);
 
-    vkDestroyDevice(device, NULL);
-    vkDestroySurfaceKHR(instance, surface, NULL);
-    vkDestroyInstance(instance, NULL);
+    vkDestroyDevice(device, nullptr);
+    vkDestroySurfaceKHR(instance, surface, nullptr);
+    vkDestroyInstance(instance, nullptr);
 
     // GLFW Destroy
     // ----------------------
@@ -482,5 +599,44 @@ int main(int argc, char *argv[])
         glfwTerminate();
     }
 
-    return 0;
+    return;
+}
+
+
+// Entry
+// ----------------------
+
+int main(int argc, char *argv[]) 
+{
+    cxxopts::Options options(APPLICATION_NAME, "A brief description");
+
+    options.add_options()
+        ("width",  "Viewport Width",  cxxopts::value<int>()->default_value("800"))
+        ("height", "Viewport Height", cxxopts::value<int>()->default_value("600"))
+        ("help",   "Print usage");
+
+    auto result = options.parse(argc, argv);
+
+    if (result.count("help"))
+    {
+        std::cout << options.help() << std::endl;
+        exit(0);
+    }
+
+    try 
+    {
+        Params params 
+        {
+            .width  = result["width"] .as<int>(),
+            .height = result["height"].as<int>(),
+        };
+
+        Execute(params); 
+    }
+    catch(const std::exception& e)
+    {
+        std::cerr << e.what() << '\n';
+    }
+
+    return 0; 
 }

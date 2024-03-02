@@ -48,7 +48,7 @@ bool CreateShader(VkDevice device, VkShaderStageFlagBits stage, Shader* shader, 
     VkShaderModuleCreateInfo moduleInfo =
     {
         .sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-        .codeSize = shader->byteCodeSize,
+        .codeSize = (size_t)shader->byteCodeSize,
         .pCode    = (uint32_t*)shader->byteCode,
     };
 

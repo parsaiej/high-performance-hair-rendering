@@ -1,19 +1,13 @@
 #include "swapchain.h"
 
 #include <GLFW/glfw3.h>
-#include <stdlib.h>
 
-typedef struct 
+struct SwapChainSupportDetails
 {
-    VkSurfaceCapabilitiesKHR capabilities;
-
-    uint32_t                 formatsCount;
-    VkSurfaceFormatKHR*      formats;
-
-    uint32_t                 presentModesCount;
-    VkPresentModeKHR*        presentModes;
-
-} SwapChainSupportDetails;
+    VkSurfaceCapabilitiesKHR        capabilities;
+    std::vector<VkSurfaceFormatKHR> formats;
+    std::vector<VkPresentModeKHR>   presentModes;
+};
 
 SwapChainSupportDetails QuerySwapChainSupport(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface)
 {
@@ -24,31 +18,24 @@ SwapChainSupportDetails QuerySwapChainSupport(VkPhysicalDevice physicalDevice, V
     uint32_t formatCount;
     vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, NULL);
 
-    if (formatCount != 0) 
-    {
-        details.formats = (VkSurfaceFormatKHR*)malloc(sizeof(VkSurfaceFormatKHR) * formatCount);
-        vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, details.formats);
-    }
+    details.formats.resize(formatCount);
+    vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, details.formats.data());
 
     uint32_t presentModeCount;
     vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, NULL);
 
-    if (presentModeCount != 0)
-    {
-        details.presentModes = (VkPresentModeKHR*)malloc(sizeof(VkPresentModeKHR) * presentModeCount);
-        vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, details.presentModes);
-    }
+    details.presentModes.resize(presentModeCount);
+    vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, details.presentModes.data());
 
     return details;
 }
 
 VkSurfaceFormatKHR ChooseSwapSurfaceFormat(SwapChainSupportDetails swapChainInfo)
 {
-    for (uint32_t i = 0; i < swapChainInfo.formatsCount; i++) 
+    for (auto format : swapChainInfo.formats)
     {
-        if (swapChainInfo.formats[i].format     == VK_FORMAT_B8G8R8A8_SRGB && 
-            swapChainInfo.formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
-            return swapChainInfo.formats[i];
+        if (format.format == VK_FORMAT_B8G8R8A8_SRGB && format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+            return format;
     }
 
     return swapChainInfo.formats[0];
@@ -56,10 +43,10 @@ VkSurfaceFormatKHR ChooseSwapSurfaceFormat(SwapChainSupportDetails swapChainInfo
 
 VkPresentModeKHR ChooseSwapPresentMode(SwapChainSupportDetails swapChainInfo)
 {
-    for (int i = 0; i < swapChainInfo.presentModesCount; i++) 
+    for (auto presentMode : swapChainInfo.presentModes)
     {
-        if (swapChainInfo.presentModes[i] == VK_PRESENT_MODE_MAILBOX_KHR)
-            return swapChainInfo.presentModes[i];
+        if (presentMode == VK_PRESENT_MODE_MAILBOX_KHR)
+            return presentMode;
     }
 
     return VK_PRESENT_MODE_FIFO_KHR;
@@ -93,7 +80,7 @@ VkExtent2D ChooseSwapExtent(const VkSurfaceCapabilitiesKHR* capabilities, GLFWwi
     }
 }
 
-VkResult CreateSwapChain(SwapChainParams params, SwapChain* swapChain)
+void TryCreateSwapChain(SwapChainParams params, SwapChain* swapChain)
 {
     SwapChainSupportDetails swapChainSupport = QuerySwapChainSupport(params.physicalDevice, params.surface);
 
@@ -126,26 +113,18 @@ VkResult CreateSwapChain(SwapChainParams params, SwapChain* swapChain)
         .pQueueFamilyIndices   = NULL
     };
 
-    // Release the swap chain info.
-
-    free(swapChainSupport.formats);
-    free(swapChainSupport.presentModes);
-
-    VkResult swapChainCreateResult = vkCreateSwapchainKHR(*params.device, &createInfo, NULL, &swapChain->primitive);
-
-    if (swapChainCreateResult != VK_SUCCESS)
-        return swapChainCreateResult;
+    if(vkCreateSwapchainKHR(*params.device, &createInfo, NULL, &swapChain->primitive) != VK_SUCCESS)
+        throw std::runtime_error("failed to create swap chain.");
 
     // Fetch image count.
 
     vkGetSwapchainImagesKHR(*params.device, swapChain->primitive, &swapChain->imageCount, NULL);
     
-    swapChain->images = (VkImage*)malloc(sizeof(VkImage) * swapChain->imageCount);
-    vkGetSwapchainImagesKHR(*params.device, swapChain->primitive, &swapChain->imageCount, swapChain->images);
+    swapChain->images.resize(swapChain->imageCount);
+    vkGetSwapchainImagesKHR(*params.device, swapChain->primitive, &swapChain->imageCount, swapChain->images.data());
 
     // Create image views.
-
-    swapChain->imageViews = (VkImageView*)malloc(sizeof(VkImageView*) * swapChain->imageCount);
+    swapChain->imageViews.resize(swapChain->imageCount);
 
     for (size_t i = 0; i < swapChain->imageCount; ++i)
     {
@@ -168,22 +147,38 @@ VkResult CreateSwapChain(SwapChainParams params, SwapChain* swapChain)
             .subresourceRange.layerCount     = 1
         };
 
-        VkResult imageViewCreateResult = vkCreateImageView(*params.device, &createInfo, NULL, &swapChain->imageViews[i]);
-
-        if (imageViewCreateResult != VK_SUCCESS)
-            return imageViewCreateResult;
+        if (vkCreateImageView(*params.device, &createInfo, NULL, &swapChain->imageViews[i]) != VK_SUCCESS)
+            throw std::runtime_error("failed to create swap chain image view.");
     }
 
-    return VK_SUCCESS;
+    // Create synchronization primitives. 
+    {
+        VkSemaphoreCreateInfo semaphoreInfo { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+        
+        VkFenceCreateInfo fenceInfo
+        {
+            .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+
+            // Create in a signaled state. 
+            .flags = VK_FENCE_CREATE_SIGNALED_BIT
+        };
+
+        if (vkCreateSemaphore(*params.device, &semaphoreInfo, nullptr, &swapChain->imageAvailableSemaphore) != VK_SUCCESS ||
+            vkCreateSemaphore(*params.device, &semaphoreInfo, nullptr, &swapChain->renderFinishedSemaphore) != VK_SUCCESS ||
+            vkCreateFence    (*params.device, &fenceInfo,     nullptr, &swapChain->inFlightFence)           != VK_SUCCESS)
+            throw std::runtime_error("failed to create swapchain synchronziation primitives.");
+    }
 }
 
 void ReleaseSwapChain(VkDevice device, SwapChain* swapChain)
 {
+    vkDestroySemaphore(device, swapChain->imageAvailableSemaphore, nullptr);
+    vkDestroySemaphore(device, swapChain->renderFinishedSemaphore, nullptr);
+
+    vkDestroyFence(device, swapChain->inFlightFence, nullptr);
+
     for (size_t i = 0; i < swapChain->imageCount; ++i)
         vkDestroyImageView(device, swapChain->imageViews[i], NULL);
-
-    free(swapChain->imageViews);
-    free(swapChain->images);
 
     vkDestroySwapchainKHR(device, swapChain->primitive, NULL);
 }
