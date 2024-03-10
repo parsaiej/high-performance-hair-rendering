@@ -1,0 +1,3 @@
+[submodule "external/VK-Demo-Wrappers"]
+	path = external/VK-Demo-Wrappers
+	url = git@github.com:parsaiej/VK-Demo-Wrappers.git

@@ -1,11 +1,6 @@
 #include <iostream>
 
-#include <Wrappers/RenderInstance.h>
-
-// Utility 
-// ----------------------
-
-
+#include <VK-Demo-Wrappers/RenderInstance.h>
 
 // Implementation
 // ----------------------
@@ -19,7 +14,7 @@ void HairRenderingCommands(Wrappers::RenderContext context)
         .imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
         .loadOp      = VK_ATTACHMENT_LOAD_OP_CLEAR,
         .storeOp     = VK_ATTACHMENT_STORE_OP_STORE,
-        .clearValue.color = { 0, 0, 0, 1 }
+        .clearValue.color = { 0, 1, 0, 1 }
     };
 
     VkRenderingInfoKHR renderInfo

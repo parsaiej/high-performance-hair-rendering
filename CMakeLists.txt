@@ -15,23 +15,11 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # -----------------------
 
 find_package(Vulkan REQUIRED)
-find_package(glfw3 REQUIRED)
-find_package(cxxopts REQUIRED)
-
-# OS-specific needs.
-# -----------------------
-
-if (APPLE)
-    find_library(COCOA_LIBRARY Cocoa REQUIRED)
-    find_library(QUARTZ_CORE QuartzCore REQUIRED)
-    add_library(MetalUtility SHARED "external/MetalUtility/MetalUtility.m")
-    target_link_libraries(MetalUtility ${QUARTZ_CORE} ${COCOA_LIBRARY} glfw)
-endif ()
 
 # Simple VK-primitive Wrappers
 # -----------------------
 
-add_subdirectory("external/Wrappers/")
+add_subdirectory("external/VK-Demo-Wrappers/")
 
 # Implementation Executable
 # -----------------------
@@ -40,9 +28,18 @@ add_executable(${EXECUTABLE_NAME}
     source/main.cpp 
 )
 
-target_include_directories(${EXECUTABLE_NAME} PRIVATE ${Vulkan_INCLUDE_DIRS} ${GLFW_INCLUDE_DIRS} "external/")
+# Include
+# -----------------------
 
-target_link_libraries(${EXECUTABLE_NAME} PRIVATE ${Vulkan_LIBRARIES} glfw MetalUtility Wrappers)
+target_include_directories(${EXECUTABLE_NAME} PRIVATE ${Vulkan_INCLUDE_DIRS} "external/")
+
+# Link
+# -----------------------
+
+target_link_libraries(${EXECUTABLE_NAME} PRIVATE ${Vulkan_LIBRARIES} Wrappers)
+
+# Defines
+# -----------------------
 
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_compile_definitions(DEBUG)
