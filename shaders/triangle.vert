@@ -1,26 +1,47 @@
-#version 450
-
-layout(location = 0) out vec3 fragColor;
-
-vec2 positions[3] = vec2[](
-    vec2(0.0, -0.5),
-    vec2(0.5, 0.5),
-    vec2(-0.5, 0.5)
-);
-
-vec3 colors[3] = vec3[](
-    vec3(1.0, 0.0, 0.0),
-    vec3(0.0, 1.0, 0.0),
-    vec3(0.0, 0.0, 1.0)
-);
-
-//push constants block
-layout( push_constant ) uniform constants
+static float2 positions[3] = 
 {
-	mat4 matrixVP;
-} PerFrameData;
+    float2(+0.0, -0.5),
+    float2(+0.5, +0.5),
+    float2(-0.5, +0.5)
+};
 
-void main() {
-    gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0) * PerFrameData.matrixVP;
-    fragColor = colors[gl_VertexIndex];
+static float3 colors[3] = 
+{
+    float3(1.0, 0.0, 0.0),
+    float3(0.0, 1.0, 0.0),
+    float3(0.0, 0.0, 1.0)
+};
+
+struct PerFrameData
+{
+    float4x4 matrixVP;
+};
+
+[[vk::push_constant]]
+PerFrameData perFrameData;
+
+struct VertexInput
+{
+    uint vertexID : SV_VertexID;
+};
+
+struct Interpolators
+{
+    float4 positionCS : SV_POSITION;
+
+    [[vk::location(0)]]
+    float3 color : TEXCOORD0;
+};
+
+Interpolators main(VertexInput input)
+{
+    Interpolators o = (Interpolators)0;
+    {
+        float4 positionOS = float4(positions[input.vertexID], 0, 1);
+
+        o.positionCS = mul(positionOS, perFrameData.matrixVP);
+        o.color      = colors[input.vertexID];
+    }
+
+    return o;
 }
