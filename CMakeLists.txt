@@ -4,6 +4,7 @@ set(EXECUTABLE_NAME high-performance-hair-rendering)
 
 project(${EXECUTABLE_NAME})
 
+# Path to USD installation.
 set (CMAKE_PREFIX_PATH "~/Development/OpenUSD_Build/")
 
 # Using C++20

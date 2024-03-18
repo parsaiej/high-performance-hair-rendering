@@ -41,20 +41,33 @@ static const char* s_USDPath;
 
 #include <cxxopts.hpp>
 
-// Resources
+// Device Data
 // ----------------------
 
-#define PIPELINE_TRIANGLE "triangle"
+struct Vertex
+{
+    glm::vec3 positionOS;
+};
 
-// Push Constants
-// ----------------------
+struct Mesh
+{
+    uint32_t indexCount;
+
+    std::unique_ptr<Buffer> indexBuffer;
+    std::unique_ptr<Buffer> vertexBuffer;
+};
 
 struct PerFrameData
 {
     glm::mat4 matrixVP;
 };
 
-static PerFrameData* s_PerFrameData;
+// Resources
+// ----------------------
+
+static std::unique_ptr<Pipeline>          s_TrianglePipeline;
+static std::vector<std::unique_ptr<Mesh>> s_Meshes;
+static std::unique_ptr<PerFrameData>      s_PerFrameData;
 
 // Implementation
 // ----------------------
@@ -117,32 +130,85 @@ void InitFunc(InitializeContext context)
 
     // Update the constants
 
-    s_PerFrameData = (PerFrameData*)malloc(sizeof(PerFrameData));
+    s_PerFrameData = std::make_unique<PerFrameData>();
     {
         s_PerFrameData->matrixVP = matrixVP;
     }
 
+    // Create mesh data
+
+    s_Meshes.resize(meshList.size());
+
+    for (int i = 0; i < meshList.size(); i++)
+    {
+        s_Meshes[i] = std::make_unique<Mesh>();
+
+        // Load the usd mesh. 
+        pxr::UsdGeomMesh sceneMesh(stage->GetPrimAtPath(meshList[i]));
+        
+        // Extracting vertex positions
+        pxr::VtArray<pxr::GfVec3f> points;
+        sceneMesh.GetPointsAttr().Get(&points);
+
+        uint32_t vertexBufferSize = sizeof(points[0]) * points.size();
+
+        // Allocate buffer to accomodate vertex positions. 
+        s_Meshes[i]->vertexBuffer = std::make_unique<Buffer>(vertexBufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        s_Meshes[i]->vertexBuffer->SetData(points.data(), vertexBufferSize);
+
+        // Extracting face vertex indices
+        pxr::VtArray<int> indices;
+        sceneMesh.GetFaceVertexIndicesAttr().Get(&indices);
+
+        uint32_t indexBufferSize = sizeof(int) * indices.size();
+
+        s_Meshes[i]->indexCount  = indices.size();
+        s_Meshes[i]->indexBuffer = std::make_unique<Buffer>(indexBufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        s_Meshes[i]->indexBuffer->SetData(indices.data(), indexBufferSize);
+    }
+
     // Create device resources
 
-    context.resources[PIPELINE_TRIANGLE] = std::make_unique<Pipeline>();
+    s_TrianglePipeline = std::make_unique<Pipeline>();
     {
-        auto trianglePipeline = static_cast<Pipeline*>(context.resources[PIPELINE_TRIANGLE].get());
-        
         // Set push constants.
+
         VkPushConstantRange perFrameConstants
         {
             .offset     = 0,
             .size       = sizeof(PerFrameData),
             .stageFlags = VK_SHADER_STAGE_VERTEX_BIT
         };
-        trianglePipeline->SetPushConstants( { perFrameConstants } );
+        s_TrianglePipeline->SetPushConstants( { perFrameConstants } );
+
+        // Vertex bindings.
+
+        VkVertexInputBindingDescription vertexDataBinding
+        {
+            .binding   = 0,
+            .stride    = sizeof(Vertex),
+            .inputRate = VK_VERTEX_INPUT_RATE_VERTEX
+        };
+        s_TrianglePipeline->SetVertexInputBindings( { vertexDataBinding } );
+
+        // Vertex attributes.
+
+        VkVertexInputAttributeDescription attribute0
+        {
+            .binding  = 0,
+            .location = 0,
+            .format   = VK_FORMAT_R32G32B32_SFLOAT,
+            .offset   = offsetof(Vertex, positionOS)
+        };
+
+        s_TrianglePipeline->SetVertexInputAttributes( { attribute0 } );
 
         // Configure the triangle pipeline.
-        trianglePipeline->SetShaderProgram("assets/vert.spv", "assets/frag.spv");
-        trianglePipeline->SetScissor(context.backBufferScissor);
-        trianglePipeline->SetViewport(context.backBufferViewport);
-        trianglePipeline->SetColorTargetFormats( { context.backBufferFormat } );
-        trianglePipeline->Commit();
+        s_TrianglePipeline->SetShaderProgram("assets/vert.spv", "assets/frag.spv");
+        s_TrianglePipeline->SetScissor(context.backBufferScissor);
+        s_TrianglePipeline->SetViewport(context.backBufferViewport);
+        s_TrianglePipeline->SetColorTargetFormats( { context.backBufferFormat } );
+        s_TrianglePipeline->Commit();
     }
 }
 
@@ -180,15 +246,32 @@ void RenderFunc(RenderContext context)
     
     // Bind triangle pipeline
     {
-        const auto trianglePipeline = static_cast<Pipeline*>(context.resources[PIPELINE_TRIANGLE].get());
-        
-        trianglePipeline->UpdateLayout(cmd, s_PerFrameData, sizeof(PerFrameData));
-        trianglePipeline->Bind(cmd);
+        s_TrianglePipeline->UpdateLayout(cmd, s_PerFrameData.get(), sizeof(PerFrameData));
+        s_TrianglePipeline->Bind(cmd);
     }
 
-    vkCmdDraw(cmd, 3, 1, 0, 0);
+    for (const auto& mesh : s_Meshes)
+    {
+        auto vertexBuffers = mesh->vertexBuffer->Get();
+
+        VkDeviceSize offsets[] = {0};
+        vkCmdBindVertexBuffers(cmd, 0, 1, &vertexBuffers, offsets);
+        vkCmdBindIndexBuffer(cmd, mesh->indexBuffer->Get(), 0, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(cmd, mesh->indexCount, 1, 0, 0, 0);
+    }
 
     vkCmdEndRendering(cmd);
+}
+
+void ReleaseFunc(ReleaseContext context)
+{
+    s_TrianglePipeline->Release(context.device);
+
+    for (auto& mesh : s_Meshes)
+    {
+        mesh->vertexBuffer->Release(context.device);
+        mesh->indexBuffer->Release(context.device);
+    }
 }
 
 // Entry
@@ -214,7 +297,7 @@ int main(int argc, char *argv[])
     {
         RenderInstance renderInstance(600 * (16.0 / 9.0), 600);
 
-        return renderInstance.Execute(InitFunc, RenderFunc);
+        return renderInstance.Execute(InitFunc, RenderFunc, ReleaseFunc);
     }
     catch(const std::exception& e)
     {
