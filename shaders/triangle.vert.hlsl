@@ -12,6 +12,9 @@ struct VertexInput
 
     [[vk::location(0)]]
     float3 positionOS : POSITION;
+
+    [[vk::location(1)]]
+    float3 normalOS : NORMAL;
 };
 
 struct Interpolators
@@ -29,7 +32,7 @@ Interpolators main(VertexInput input)
         float4 positionOS = float4(input.positionOS, 1);
 
         o.positionCS = mul(positionOS, perFrameData.matrixVP);
-        o.color      = float3(1, 0, 0);
+        o.color      = input.normalOS;
     }
 
     return o;

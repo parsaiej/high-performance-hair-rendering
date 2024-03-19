@@ -1,2 +1,2 @@
-~/VulkanSDK/1.3.275.0/macOS/bin/dxc -spirv -T vs_6_0 -E main triangle.vert -Fo ../build/assets/vert.spv
-~/VulkanSDK/1.3.275.0/macOS/bin/dxc -spirv -T ps_6_0 -E main triangle.frag -Fo ../build/assets/frag.spv
+~/VulkanSDK/1.3.275.0/macOS/bin/dxc -spirv -T vs_6_0 -E main triangle.vert.hlsl -Fo ../build/assets/vert.spv
+~/VulkanSDK/1.3.275.0/macOS/bin/dxc -spirv -T ps_6_0 -E main triangle.frag.hlsl -Fo ../build/assets/frag.spv
